@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>WRO 2026 專業賽事管理系統</title>
+    <style>
+        :root { --bg: #0d0d0d; --panel: #1a1a1a; --text: #ffffff; --highlight: #00ffcc; --accent: #ffcc00; }
+        body { font-family: 'Segoe UI', sans-serif; background-color: var(--bg); color: var(--text); padding: 20px; }
+        .container { max-width: 1000px; margin: auto; background: var(--panel); padding: 25px; border-radius: 15px; border: 2px solid var(--highlight); }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th { background-color: var(--highlight); color: #000; padding: 12px; }
+        td { border: 1px solid #444; padding: 10px; text-align: center; }
+        .sc { width: 50px; height: 40px; font-size: 1.2em; font-weight: bold; background: #222; color: #fff; border: 2px solid var(--highlight); text-align: center; }
+        button { background-color: var(--accent); color: #000; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; margin: 2px; }
+        .rule-btn { background-color: #ff8800; color: white; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2> WRO 2026 賽事管理系統</h2>
+    
+    <div style="background: #262626; padding: 15px; border-radius: 10px; margin-bottom: 20px;">
+        <input type="date" id="matchDate">
+        <input type="text" id="tName" placeholder="新隊伍名稱">
+        <button onclick="addTeam()"> 新增隊伍</button>
+        <button onclick="saveMatch()" style="background:#00ffcc"> 儲存紀錄</button>
+        <button onclick="toggleHistory()" style="background:#4488ff; color:white;"> 歷史紀錄</button>
+        <button class="rule-btn" onclick="window.open('https://wro-association.org/', '_blank')"> 規則連結</button>
+        <button class="rule-btn" onclick="window.open('https://wu-sam.github.io/-/', '_blank')">隨機計時器</button>
+    </div>
+
+    <div id="historyList" style="display:none; background:#333; padding:15px; border-radius:10px; margin-bottom:20px;">
+        <h3> 歷史檔案室 (勾選以刪除)</h3>
+        <div id="recordItems"></div>
+        <button onclick="deleteSelectedHistory()" style="background:#ff4444; color:white; width:100%; margin-top:10px;"> 刪除勾選的歷史紀錄</button>
+    </div>
+
+    <h3> 積分排名</h3>
+    <table id="statsTable"><thead><tr><th>刪除</th><th>隊伍</th><th>勝</th><th>敗</th><th>球</th><th>違規項目</th></tr></thead><tbody></tbody></table>
+
+    <h3> 對戰紀錄表</h3>
+    <table id="matchTable"><thead><tr><th>對戰組合</th><th>回合 1</th><th>回合 2</th><th>回合 3</th></tr></thead><tbody></tbody></table>
+</div>
+
+<script>
+    let teams = [], matchesData = {};
+    const rules = ["無違規", "撞倒網柱", "機器人越線", "未經授權觸碰", "延誤比賽", "干擾對手"];
+
+    function addTeam() {
+        let name = document.getElementById('tName').value.trim();
+        if(name && !teams.find(t => t.name === name)) {
+            teams.push({name, w:0, l:0, s:0, v:0, checked:false});
+            refresh();
+        }
+    }
+
+    function refresh() {
+        let tbody = document.querySelector('#statsTable tbody');
+        tbody.innerHTML = '';
+        teams.sort((a,b) => b.w - a.w || b.s - a.s || b.v - a.v).forEach(t => {
+            // 修正處：改用反單引號包裹 HTML 模板
+            let options = rules.map((r, i) => `<option value="${i}" ${t.v==i?'selected':''}>${r}</option>`).join('');
+            tbody.innerHTML += `<tr>
+                <td><input type="checkbox" onchange="toggleSelect('${t.name}')" ${t.checked ? 'checked' : ''}></td>
+                <td>${t.name}</td><td>${t.w}</td><td>${t.l}</td><td>${t.s}</td>
+                <td><select onchange="updateV('${t.name}', this.value)">${options}</select></td></tr>`;
+        });
+        renderMatches();
+    }
+
+    function renderMatches() {
+        let mBody = document.querySelector('#matchTable tbody');
+        mBody.innerHTML = '';
+        for(let i=0; i<teams.length; i++) {
+            for(let j=i+1; j<teams.length; j++) {
+                // 修正處：補上反單引號
+                let key = `${i}-${j}`, scores = matchesData[key] || ['', '', '', '', '', ''];
+                mBody.innerHTML += `<tr><td>${teams[i].name} vs ${teams[j].name}</td>
+                    <td><input type="number" class="sc" data-key="${key}" data-idx="0" value="${scores[0]}">:<input type="number" class="sc" data-key="${key}" data-idx="1" value="${scores[1]}"></td>
+                    <td><input type="number" class="sc" data-key="${key}" data-idx="2" value="${scores[2]}">:<input type="number" class="sc" data-key="${key}" data-idx="3" value="${scores[3]}"></td>
+                    <td><input type="number" class="sc" data-key="${key}" data-idx="4" value="${scores[4]}">:<input type="number" class="sc" data-key="${key}" data-idx="5" value="${scores[5]}"></td></tr>`;
+            }
+        }
+        document.querySelectorAll('.sc').forEach(el => el.addEventListener('input', calc));
+    }
+
+    function calc(e) {
+        let key = e.target.dataset.key, idx = e.target.dataset.idx;
+        if(!matchesData[key]) matchesData[key] = ['', '', '', '', '', ''];
+        matchesData[key][idx] = e.target.value;
+        teams.forEach(t => { t.w=0; t.l=0; t.s=0; });
+        for(let k in matchesData) {
+            let [i1, i2] = k.split('-').map(Number);
+            let s = matchesData[k];
+            for(let m=0; m<6; m+=2) {
+                let v1 = parseInt(s[m]), v2 = parseInt(s[m+1]);
+                if(!isNaN(v1)) teams[i1].s += v1;
+                if(!isNaN(v2)) teams[i2].s += v2;
+                if(!isNaN(v1) && !isNaN(v2)) {
+                    if(v1 > v2) { teams[i1].w++; teams[i2].l++; }
+                    else if(v2 > v1) { teams[i2].w++; teams[i1].l++; }
+                }
+            }
+        }
+        refresh();
+    }
+
+    function saveMatch() {
+        let inputs = document.querySelectorAll('.sc');
+        for(let input of inputs) { if(input.value === "") { alert("請填寫所有對戰分數！"); return; } }
+        let history = JSON.parse(localStorage.getItem('wro_records') || '[]');
+        history.push({ date: document.getElementById('matchDate').value || "未知日期", teams, matchesData, selected: false });
+        localStorage.setItem('wro_records', JSON.stringify(history));
+        alert('儲存成功！');
+    }
+
+    function toggleHistory() {
+        let list = document.getElementById('historyList');
+        list.style.display = list.style.display === 'none' ? 'block' : 'none';
+        let history = JSON.parse(localStorage.getItem('wro_records') || '[]');
+        document.getElementById('recordItems').innerHTML = history.map((m, i) => `
+            <div style="background:#222; padding:10px; margin:5px; border-left:4px solid #00ffcc; display:flex; align-items:center;">
+                <input type="checkbox" onchange="toggleHistSelect(${i})" ${m.selected ? 'checked' : ''}>
+                <span style="flex-grow:1; margin-left:10px; cursor:pointer;" onclick="loadRecord(${i})">${m.date} - ${m.teams.length} 隊</span>
+            </div>`).join('');
+    }
+
+    function toggleHistSelect(i) {
+        let history = JSON.parse(localStorage.getItem('wro_records'));
+        history[i].selected = !history[i].selected;
+        localStorage.setItem('wro_records', JSON.stringify(history));
+    }
+
+    function deleteSelectedHistory() {
+        let history = JSON.parse(localStorage.getItem('wro_records') || '[]');
+        history = history.filter(m => !m.selected);
+        localStorage.setItem('wro_records', JSON.stringify(history));
+        toggleHistory();
+    }
+
+    function loadRecord(i) {
+        let history = JSON.parse(localStorage.getItem('wro_records'));
+        teams = history[i].teams;
+        matchesData = history[i].matchesData;
+        refresh();
+    }
+    function toggleSelect(name) { teams.find(x => x.name === name).checked = !teams.find(x => x.name === name).checked; }
+    function updateV(name, val) { teams.find(t=>t.name===name).v = parseInt(val); refresh(); }
+</script>
+</body>
+</html>
